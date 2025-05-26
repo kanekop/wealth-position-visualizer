@@ -9,7 +9,7 @@
 #### 1. 基本UI構造
 - **ヘッダー**: アプリタイトル、Aboutボタン、言語切り替えボタン
 - **入力フォーム**: 年収・総資産の入力フィールド
-- **結果表示**: 日本・世界での位置表示（モックデータ）
+- **結果表示**: 日本・世界での位置表示（**実データによる計算実装済み**）
 - **レスポンシブデザイン**: Tailwind CSSによるモバイル対応
 
 #### 2. バイリンガル対応
@@ -22,273 +22,204 @@
   src/components/LanguageToggle.jsx # 切り替えボタンコンポーネント
   ```
 
-#### 3. 技術基盤
+#### 3. 計算ロジック（2024年5月27日実装）
+- **パレート分布・対数正規分布の実装**: ✅ 完了
+- **富裕度スコアの計算**: ✅ 完了（年収×10年 + 総資産）
+- **順位・占有率の算出**: ✅ 完了
+- **実装ファイル**:
+  ```
+  src/data/constants.js      # 統計データ定数（日本・世界）
+  src/utils/distributions.js # 分布計算関数
+  src/utils/calculations.js  # メイン計算ロジック
+  ```
+
+#### 4. 技術基盤
 - **フレームワーク**: React (Vite)
-- **スタイリング**: Tailwind CSS
+- **スタイリング**: Tailwind CSS v3（v4からダウングレード済み）
 - **アイコン**: lucide-react
 - **数値フォーマット**: numeral（インストール済み、未使用）
 - **グラフ**: Chart.js（インストール済み、未使用）
 
+### 🔄 実装済みだが改善が必要な機能
+
+#### 1. 計算精度の向上
+- **現状**: 基本的な混合分布モデルで計算
+- **課題**: 
+  - パラメータの精緻化が必要
+  - 実際の統計データとの照合が必要
+  - 年収1000万円、資産1億円での結果検証が必要
+  - 年収200万円、資産50万円での結果検証が必要
+
+#### 2. 入力値の処理
+- **現状**: parseNumberInput関数でカンマ・全角対応
+- **課題**: より堅牢なバリデーションが必要
+
 ### ❌ 未実装機能
 
-#### 1. 計算ロジック（最優先）
-- パレート分布・対数正規分布の実装
-- 富裕度スコアの計算
-- 順位・占有率の算出
-
-#### 2. データ管理
-- 統計データの定数化
-- フェルミ推定パラメータの設定
-
-#### 3. ビジュアライゼーション
+#### 1. ビジュアライゼーション
 - Chart.jsを使った分布グラフ
 - 位置の視覚的表示
+- アニメーション効果
 
-#### 4. UX改善
-- 数値のカンマ区切り表示（numeralライブラリ活用）
-- 入力値のバリデーション強化
+#### 2. UX改善
+- 数値のカンマ区切り自動表示（numeralライブラリ活用）
+- 入力中のリアルタイムフォーマット
 - ローディング状態の表示
 
-#### 5. About機能
+#### 3. About機能
 - 計算方法の説明モーダル
 - データソースの明示
+- 免責事項の詳細
 
-## 🎯 今後のアクション（優先順位順）
+#### 4. 結果の共有機能
+- SNSシェア
+- 結果画像の生成
+- URLでの結果共有
 
-### Phase 1: 計算ロジック実装（3-4日）
+## 🎯 次回の作業計画
 
-#### 1.1 データ定数の作成
-**ファイル**: `src/data/constants.js`
+### 最優先: 計算精度の検証と改善（Phase 1.5）
 
+#### 1. パラメータの調整
+**対象ファイル**: `src/data/constants.js`
+
+現在の課題：
+- 年収1000万円、資産1億円で日本の上位15.3%は低すぎる可能性
+- 実際は上位3-5%程度が妥当と思われる
+
+調整案：
 ```javascript
-export const JAPAN_DATA = {
-  population: 125800000,
-  households: 53000000,
-  giniCoefficient: 0.38,
-  medianIncome: 4300000,
-  meanIncome: 5500000,
-  top1PercentThreshold: 15000000,
-  top1PercentWealthShare: 0.20,
-  // パレート分布パラメータ
-  paretoAlpha: 1.5,
-  paretoXm: 10000000,
-  // 対数正規分布パラメータ  
-  logNormalMu: 15.2,
-  logNormalSigma: 0.8
-};
+// 対数正規分布パラメータの調整
+logNormalMu: 15.2,    // → 15.8に調整？
+logNormalSigma: 0.8,  // → 0.6に調整？
 
-export const WORLD_DATA = {
-  population: 8000000000,
-  giniCoefficient: 0.63,
-  medianWealth: 8654, // USD
-  top1PercentWealthShare: 0.47,
-  // 地域別調整係数
-  regionMultipliers: {
-    japan: 1.0,
-    northAmerica: 1.2,
-    europe: 1.1,
-    asia: 0.8
-  }
-};
+// 閾値の調整
+top10PercentThreshold: 8000000,  // → 再検証が必要
 ```
 
-#### 1.2 分布計算の実装
-**ファイル**: `src/utils/distributions.js`
-
-```javascript
-// パレート分布のCDF（累積分布関数）
-export function paretoCDF(x, alpha, xm) {
-  if (x < xm) return 0;
-  return 1 - Math.pow(xm / x, alpha);
-}
-
-// 対数正規分布のCDF
-export function logNormalCDF(x, mu, sigma) {
-  // 標準正規分布のCDFを使用
-  const z = (Math.log(x) - mu) / sigma;
-  return normalCDF(z);
-}
-
-// 混合分布での順位計算
-export function calculatePercentile(wealthScore, threshold) {
-  if (wealthScore > threshold) {
-    // パレート分布を使用
-    return paretoCDF(wealthScore, JAPAN_DATA.paretoAlpha, threshold);
-  } else {
-    // 対数正規分布を使用
-    return logNormalCDF(wealthScore, JAPAN_DATA.logNormalMu, JAPAN_DATA.logNormalSigma);
-  }
-}
-```
-
-#### 1.3 計算ロジックの統合
-**ファイル**: `src/utils/calculations.js`
-
-```javascript
-import { calculatePercentile } from './distributions';
-import { JAPAN_DATA, WORLD_DATA } from '../data/constants';
-
-export function calculateWealthPosition(annualIncome, totalAssets) {
-  // 富裕度スコアの計算（年収の10年分 + 総資産）
-  const wealthScore = (annualIncome * 10) + totalAssets;
-
-  // 日本での位置
-  const japanPercentile = calculatePercentile(wealthScore, JAPAN_DATA.top1PercentThreshold);
-  const japanWealthShare = calculateWealthShare(japanPercentile, JAPAN_DATA);
-
-  // 世界での位置（購買力平価調整）
-  const worldWealthScore = wealthScore / 100; // JPY to USD簡易変換
-  const worldPercentile = calculateWorldPercentile(worldWealthScore);
-  const worldWealthShare = calculateWealthShare(worldPercentile, WORLD_DATA);
-
-  return {
-    japan: {
-      percentile: (1 - japanPercentile) * 100, // 上位％に変換
-      wealthShare: japanWealthShare
-    },
-    world: {
-      percentile: (1 - worldPercentile) * 100,
-      wealthShare: worldWealthShare
-    }
-  };
-}
-```
+#### 2. デバッグツールの追加
+- 計算過程の可視化機能
+- パラメータ調整用の管理画面（開発時のみ）
+- 実際の統計データとの比較表示
 
 ### Phase 2: ビジュアライゼーション（2-3日）
 
 #### 2.1 分布グラフコンポーネント
 **ファイル**: `src/components/DistributionChart.jsx`
-
-- Chart.jsを使用した分布曲線の描画
-- 自分の位置をマーカーで表示
-- 日本/世界の切り替え可能
+- 正規分布曲線の描画
+- ユーザーの位置をマーカーで表示
+- 日本/世界の切り替え
 
 #### 2.2 結果表示の改善
-**ファイル**: `src/components/ResultDisplay.jsx`（新規作成）
-
-- 現在のインライン実装を独立コンポーネント化
-- アニメーション強化
-- より視覚的なインパクトのある表示
+**ファイル**: `src/components/ResultDisplay.jsx`
+- 現在のインライン実装を分離
+- より視覚的にインパクトのある表示
+- アニメーション追加
 
 ### Phase 3: UX/UI改善（2日）
 
-#### 3.1 入力フォームの改善
-- numeralを使った自動カンマ区切り
+#### 3.1 計算結果の表示の改善
+- 年収の順位およびパーセンタイルと資産の順位およびパーセンタイルをわけて表示させたい。
+
+#### 3.2 入力フォームの改善
+**ファイル**: `src/components/InputForm.jsx`
+- numeralを使った自動フォーマット
 - リアルタイムバリデーション
-- ツールチップによる説明追加
+- ツールチップ
 
-#### 3.2 Aboutモーダル実装
+#### 3.3 Aboutモーダル実装
 **ファイル**: `src/components/AboutModal.jsx`
+- 計算方法の説明
+- データソース明記
+- 制限事項
 
-- 計算方法の詳細説明
-- データソースの明記
-- 制限事項の説明
-
-### Phase 4: 品質向上（1-2日）
-
-#### 4.1 エラーハンドリング
-- 異常値の検出と対応
-- エラーメッセージの表示
-
-#### 4.2 パフォーマンス最適化
-- 計算処理の最適化
-- メモ化の活用
-
-#### 4.3 テスト
-- 計算ロジックのユニットテスト
-- 各種ブラウザでの動作確認
-
-## 🔧 技術的決定事項
-
-### 状態管理
-- **現在**: useState（ローカルステート）
-- **将来**: 複雑化した場合はuseReducerまたはZustandを検討
-
-### データ取得
-- **現在**: ハードコードされた定数
-- **将来**: APIからの動的取得を検討（四半期更新）
-
-### スタイリング
-- **決定**: Tailwind CSSで統一
-- **理由**: 高速開発、一貫性、レスポンシブ対応の容易さ
-
-### 計算精度
-- **方針**: 「統計的推定」であることを明記
-- **誤差**: ±5%程度を想定
-
-## 📁 ファイル構造（計画）
+## 📁 現在のファイル構造
 
 ```
 src/
 ├── components/
-│   ├── InputForm.jsx         # 既存を分離
-│   ├── ResultDisplay.jsx     # 新規作成
-│   ├── DistributionChart.jsx # 新規作成
-│   ├── AboutModal.jsx        # 新規作成
 │   └── LanguageToggle.jsx    # 実装済み
 ├── contexts/
 │   └── LanguageContext.jsx   # 実装済み
 ├── utils/
-│   ├── calculations.js       # 新規作成
-│   ├── distributions.js      # 新規作成
-│   └── formatters.js         # 新規作成
+│   ├── calculations.js       # 実装済み
+│   └── distributions.js      # 実装済み
 ├── data/
-│   ├── constants.js          # 新規作成
-│   └── translations.js       # LanguageContextから分離検討
-├── App.jsx                   # リファクタリング予定
+│   └── constants.js          # 実装済み
+├── App.jsx                   # 実装済み（バイリンガル対応）
 ├── index.jsx
 └── index.css
 ```
 
-## 🐛 既知の問題
+## 🐛 既知の問題と対応状況
 
+### 解決済み
+1. **Tailwind CSS v4の互換性問題**
+   - v3.4.0にダウングレードして解決
+   
+2. **計算ロジックの未実装**
+   - 2024年5月27日に実装完了
+
+### 未解決
 1. **言語切り替え時の地域名**
    - 結果表示の「日本」「世界」がハードコード
    - 翻訳オブジェクトに追加が必要
 
-2. **入力値の扱い**
-   - カンマ区切りの数値が正しくパースされない可能性
-   - 数値以外の入力への対応不足
+2. **計算精度**
+   - パラメータの精緻化が必要
+   - 実データとの照合が必要
 
 3. **モバイル表示**
-   - 結果表示部分が少し窮屈
-   - グラフ追加時のレイアウト調整が必要
+   - 結果表示部分のレイアウト調整が必要
 
-## 💡 改善アイデア（バックログ）
+## 💡 今後の展開アイデア
 
-1. **年齢別分析**
-   - 年齢を入力に追加
-   - 同年代での位置も表示
+### 短期（1-2週間）
+1. **計算精度の向上**
+   - 最新の統計データを反映
+   - パラメータの微調整
+   
+2. **基本的なグラフ表示**
+   - Chart.jsで分布曲線を表示
 
-2. **地域別分析**
-   - 都道府県選択
-   - 地域別の順位表示
+### 中期（1ヶ月）
+1. **Preference画面**
+   - 為替レート調整
+   - 計算パラメータのカスタマイズ
+   
+2. **詳細分析機能**
+   - 年齢別分析
+   - 地域別分析
 
-3. **推移グラフ**
-   - 将来予測機能
-   - 過去からの推移表示
-
-4. **SNSシェア機能**
-   - 結果画像の生成
-   - Twitter/Facebook共有
-
-5. **PWA化**
-   - オフライン対応
-   - インストール可能
+### 長期（3ヶ月以降）
+1. **データの自動更新**
+   - APIからの統計データ取得
+   - 四半期ごとの更新
+   
+2. **多言語展開**
+   - 中国語対応
+   - その他の言語
 
 ## 📝 開発メモ
 
-### 2024年5月27日
-- プロジェクト開始
-- 基本UI実装完了
-- バイリンガル対応実装
-- 計算ロジックは未実装（モックデータ使用中）
+### 2024年5月27日の進捗
+- ✅ プロジェクト開始
+- ✅ 基本UI実装
+- ✅ バイリンガル対応実装
+- ✅ 計算ロジック実装（パレート分布・対数正規分布）
+- ✅ 実データによる計算結果表示
+- ⚠️ 計算精度は要調整
 
-### 次回作業予定
-1. `src/data/constants.js`の作成
-2. `src/utils/distributions.js`の実装
-3. 実際の計算ロジックの組み込み
+### 技術的な決定事項
+- **富裕度スコア計算**: 年収×10年 + 総資産
+- **為替レート**: 1USD = 150円（将来的に調整可能に）
+- **分布モデル**: 混合分布（閾値以下は対数正規、以上はパレート）
+
+### 次回作業時の注意点
+1. App.jsxが正しいバージョンか確認（バイリンガル対応版）
+2. Tailwind CSSのバージョンが3.x系か確認
+3. 計算結果のデバッグログを活用
 
 ---
 
-**注意**: このドキュメントは開発者間の情報共有用です。最新の状態を反映するよう、実装時に更新してください。
+**注意**: このドキュメントは開発者間の情報共有用です。実装時は必ず更新してください。
